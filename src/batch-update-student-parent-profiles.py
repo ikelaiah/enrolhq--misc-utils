@@ -163,7 +163,7 @@ COLUMN_MAP: dict[str, tuple[str, str]] = {
     "Parent One Mobile 30AE":            ("user_parent", "mobile_phone"),
     "Parent One Home Phone 31AF":        ("user_parent", "home_phone"),
     "Parent One Business Phone 32AG":    ("user_parent", "business_phone"),
-    "Parent One Email Preference 33AH":  ("user_parent", "email_preference"),
+    # "Parent One Email Preference 33AH":  ("user_parent", "email_preference"),  # UUID FK, not a label
     # "Parent One Relationship 27AB":    ("user_parent", "relationship_to_student"),  # integer enum
 
     # Parent One residential address
@@ -202,7 +202,7 @@ COLUMN_MAP: dict[str, tuple[str, str]] = {
     "Parent Two Mobile 48AW":            ("non_user_parent", "mobile_phone"),
     "Parent Two Home Phone 49AX":        ("non_user_parent", "home_phone"),
     "Parent Two Business Phone 50AY":    ("non_user_parent", "business_phone"),
-    "Parent Two Email Preference 51AZ":  ("non_user_parent", "email_preference"),
+    # "Parent Two Email Preference 51AZ":  ("non_user_parent", "email_preference"),  # UUID FK, not a label
     # "Parent Two Relationship 45AT":    ("non_user_parent", "relationship_to_student"),
 
     # Parent Two residential address
