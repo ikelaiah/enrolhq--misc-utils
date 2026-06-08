@@ -1,0 +1,67 @@
+# Label -> enum-code translation tables.
+# ---------------------------------------------------------------------------
+# The source export carries human labels; EnrolHQ expects integer enum codes.
+# Each table below maps a (case-insensitive, stripped) source label to the
+# code EnrolHQ wants. Codes are verified against docs/EnrolHQ API (v2).yaml:
+#   indigenous           AboriginalStatusesEnum   0=No, 1=Aboriginal, 2=TSI
+#   highest_school_year  HighestSchoolYearEnum    1..4
+#   degree               DegreeEnum               5..8
+#   occupational_group   OccupationalGroupEnum    1..4, 8, 9
+#
+# A label not found here is reported as an unmapped warning and the field is
+# left untouched (the rest of the record still saves). Keys are matched after
+# lower-casing, so casing here is for readability only.
+
+# aboriginal_statuses is an ARRAY field; values are lists.
+[indigenous]
+"no" = [0]
+"neither aboriginal nor torres strait" = [0]
+"neither aboriginal nor torres strait islander" = [0]
+"aboriginal" = [1]
+"yes, aboriginal" = [1]
+"torres strait islander" = [2]
+"yes, torres strait islander" = [2]
+"aboriginal and torres strait islander" = [1, 2]
+"yes, both aboriginal and torres strait islander" = [1, 2]
+
+[highest_school_year]
+"year 8 or below" = 1
+"year 9 or below" = 1
+"year 9" = 1
+"year 9 or equivalent" = 1
+"year 10" = 2
+"year 10 or equivalent" = 2
+"year 11" = 3
+"year 11 or equivalent" = 3
+"year 12" = 4
+"year 12 or equivalent" = 4
+
+[degree]
+"bachelor" = 7
+"bachelor degree" = 7
+"bachelor degree or above" = 7
+"bachelor degree or higher" = 7
+"advanced diploma" = 6
+"advanced diploma/diploma" = 6
+"diploma" = 6
+"certificate" = 5
+"certificate i to iv" = 5
+"certificate i to iv including trade certificate" = 5
+"no non-school qualification" = 8
+"no qualification" = 8
+"none" = 8
+
+[occupational_group]
+# Numeric ASCED group codes as used by the source export.
+"group 1" = 1
+"group 2" = 2
+"group 3" = 3
+"group 4" = 4
+"group 8" = 8
+"group 9" = 9
+# EnrolHQ's own descriptive labels (defensive, in case the source uses them).
+"no paid work in the last 12 months" = 8
+"no paid work" = 8
+"not stated or unknown" = 9
+"not stated" = 9
+"unknown" = 9

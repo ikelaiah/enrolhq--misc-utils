@@ -1,0 +1,30 @@
+# Spreadsheet columns that drive row<->application matching.
+# ---------------------------------------------------------------------------
+# External IDs in EnrolHQ are not stable (integration jobs rewrite them), so
+# matching uses several identifiers with OR semantics. These keys name the
+# spreadsheet columns each strategy reads. Change them here if the import
+# template's headers change — no code edit needed.
+
+[student]
+# Primary key: (external_id, dob). Fallback: (last, first, middle, dob).
+external_id = "Student External Id 0A"
+dob         = "Student Dob 5F"
+first_name  = "Student First Name 1B"
+middle_name = "Student Middle Name 3D"
+last_name   = "Student Last Name 4E"
+entry_year  = "Student Entry Year 11L"
+
+[parent1]
+# A parent slot matches by ANY of: external_id, email, mobile, (first, last).
+external_id = "Parent One External Id 22W"
+email       = "Parent One Email 29AD"
+mobile      = "Parent One Mobile 30AE"
+first_name  = "Parent One First Name 24Y"
+last_name   = "Parent One Last Name 26AA"
+
+[parent2]
+external_id = "Parent Two External Id 40AO"
+email       = "Parent Two Email 47AV"
+mobile      = "Parent Two Mobile 48AW"
+first_name  = "Parent Two First Name 42AQ"
+last_name   = "Parent Two Last Name 44AS"

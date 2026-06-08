@@ -1,0 +1,37 @@
+# Religion choices — EXAMPLE only. Not any real school's list.
+# ---------------------------------------------------------------------------
+# `religion` is declared a plain string in the OpenAPI spec but is validated
+# SERVER-SIDE against a school-configured dropdown. Sending a value outside
+# the list returns HTTP 400 and fails the ENTIRE PUT for that record. There is
+# no API endpoint that exposes the dropdown, so the list must be mirrored here.
+#
+# HOW TO GET A REAL LIST: open the school's EnrolHQ admin UI, find the religion
+# dropdown, and transcribe its options. Save them to religion.<school>.toml and
+# pass --religion-config religion.<school>.toml. Those per-school files are
+# git-ignored (see .gitignore) so a real school's list is never committed —
+# only this generic example ships with the repo.
+#
+# The `allowed` values below are a deliberately generic, invented set just so
+# the tool runs out of the box; they will NOT match a real school's dropdown.
+# Refresh `allowed` from the EnrolHQ UI if religion writes start getting
+# skipped.
+#
+# Matching is case-insensitive: a sheet value is lower-cased, run through
+# [aliases], then checked against `allowed`. The canonical spelling from
+# `allowed` is what gets sent.
+
+allowed = [
+  "Anglican", "Baptist", "Buddhist", "Catholic", "Christian",
+  "Hindu", "Islamic", "Jewish", "Lutheran", "Methodist",
+  "Orthodox", "Pentecostal", "Presbyterian", "Protestant", "Sikh",
+  "Uniting", "Other", "Nil", "Not Provided",
+]
+
+# Source label (lower-cased) -> the canonical choice (lower-cased) to look up
+# in `allowed`. This alias logic is the tool's own, not school data: it folds
+# the various stated-no-religion phrasings onto "Nil".
+[aliases]
+"none" = "nil"
+"no religion" = "nil"
+"no" = "nil"
+"nil" = "nil"

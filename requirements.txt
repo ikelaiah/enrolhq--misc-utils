@@ -1,3 +1,10 @@
-enrolhq
+# Runtime
+# The EnrolHQ SDK is not published to PyPI; install from GitHub.
+# Pin to a commit (@<sha>) once the SDK starts tagging releases.
+enrolhq @ git+https://github.com/team-and-systems-hq/enrolhq-python.git@main
 openpyxl
 python-dotenv
+# TOML config parsing uses the stdlib `tomllib` (Python 3.11+); no dependency.
+
+# Development / tests (pure unit tests, no network)
+pytest

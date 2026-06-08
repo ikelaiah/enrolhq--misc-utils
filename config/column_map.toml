@@ -1,0 +1,185 @@
+# Column -> API field mapping for the EnrolHQ batch sync.
+# ---------------------------------------------------------------------------
+# This file is DATA, not code. Each [[column]] entry maps one spreadsheet
+# header to a destination on the EnrolHQ ApplicationV2 object. To stop
+# syncing a column, comment out (or delete) its [[column]] block. Any header
+# not listed here is silently ignored.
+#
+# Fields per entry:
+#   header     (required) exact spreadsheet column header
+#   section    (required) where on the application the value lands; one of:
+#                  key               match-only, never written
+#                  app               top-level application field
+#                  addr_residential  app.residential_address  (Address)
+#                  addr_mailing      app.mailing_address       (Address)
+#                  parent1           app.user_parent           (AdminParentV1)
+#                  parent2           app.non_user_parent       (AdminParentV1)
+#                  parent1_addr_res  app.user_parent.residential_address
+#                  parent1_addr_mail app.user_parent.mailing_address
+#                  parent2_addr_res  app.non_user_parent.residential_address
+#                  parent2_addr_mail app.non_user_parent.mailing_address
+#   field      (required) the destination attribute name on that section
+#   transform  (optional) named transform from transforms.py. Omit for plain
+#                  free-text/date passthrough. One of:
+#                  enum:<table>        label -> int   via enum_maps.toml
+#                  enum_array:<table>  label -> [int]
+#                  fk:<dict>           label -> {id}  via reference dictionary
+#                  fk_array:<dict>     label -> [{id}]
+#                  home_language       compound home_language + speak-other gate
+#                  how_hear            free-text "Other" w/ structured dedup
+#                  religion            school-allowlisted choice
+#
+# Section/field/transform identifiers below are verified against
+# docs/EnrolHQ API (v2).yaml (ApplicationV2 / AdminParentV1 / Address).
+
+# ===========================================================================
+# Keys — used only for matching a sheet row to an application. Never written.
+# ===========================================================================
+[[column]]
+header = "Student External Id 0A"
+section = "key"
+field = "student_external_id"
+
+[[column]]
+header = "Student Dob 5F"
+section = "key"
+field = "student_dob"
+
+[[column]]
+header = "Parent One External Id 22W"
+section = "key"
+field = "parent1_external_id"
+
+[[column]]
+header = "Parent One Email 29AD"   # email is read-only on AdminParentV1
+section = "key"
+field = "parent1_email"
+
+[[column]]
+header = "Parent Two External Id 40AO"
+section = "key"
+field = "parent2_external_id"
+
+[[column]]
+header = "Parent Two Email 47AV"   # email is read-only on AdminParentV1
+section = "key"
+field = "parent2_email"
+
+# ===========================================================================
+# EXTRA_* — the enrichment set this tool actually pushes. Everything outside
+# this set (names, addresses, phones) is intentionally NOT mapped so a re-run
+# cannot clobber data the school maintains elsewhere. Re-add a [[column]]
+# block to start syncing that field again.
+# ===========================================================================
+
+# --- Student-level ---
+[[column]]
+header = "EXTRA_STUDENT_INDIGENOUS"
+section = "app"
+field = "aboriginal_statuses"
+transform = "enum_array:indigenous"
+
+[[column]]
+header = "EXTRA_STUDENT_LANG_AT_HOME"
+section = "app"
+field = "home_language"
+transform = "home_language"
+
+[[column]]
+header = "EXTRA_STUDENT_COUNTRY_OF_BIRTH"
+section = "app"
+field = "born_country"
+transform = "fk:countries"
+
+[[column]]
+header = "EXTRA_STUDENT_NATIONALITY"
+section = "app"
+field = "nationalities"
+transform = "fk_array:nationalities"
+
+# --- Parent One (user_parent) ---
+# NOTE: Parent DOB (EXTRA_PARENT1_BIRTHDATE -> parent1.dob) is intentionally
+# omitted: de-scoped by the client and disabled instance-wide in EnrolHQ
+# (locked parents silently drop the write). Re-add only if both reverse.
+[[column]]
+header = "EXTRA_PARENT1_RELIGION"
+section = "parent1"
+field = "religion"
+transform = "religion"
+
+[[column]]
+header = "EXTRA_PARENT1_PLACE_OF_WORSHIP"
+section = "parent1"
+field = "church_attended"
+
+[[column]]
+header = "EXTRA_PARENT1_HEARD_ABOUT_SCHOOL"
+section = "parent1"
+field = "how_hear_other"
+transform = "how_hear"
+
+[[column]]
+header = "EXTRA_PARENT1_EDUCATION"
+section = "parent1"
+field = "highest_school_year"
+transform = "enum:highest_school_year"
+
+[[column]]
+header = "EXTRA_PARENT1_NON_EDUCATION"
+section = "parent1"
+field = "degree"
+transform = "enum:degree"
+
+[[column]]
+header = "EXTRA_PARENT1_OCCUPATION_GROUP"
+section = "parent1"
+field = "occupational_group"
+transform = "enum:occupational_group"
+
+[[column]]
+header = "EXTRA_PARENT1_LANG_AT_HOME"
+section = "parent1"
+field = "home_language"
+transform = "home_language"
+
+# --- Parent Two (non_user_parent) — mirrors Parent One ---
+[[column]]
+header = "EXTRA_PARENT2_RELIGION"
+section = "parent2"
+field = "religion"
+transform = "religion"
+
+[[column]]
+header = "EXTRA_PARENT2_PLACE_OF_WORSHIP"
+section = "parent2"
+field = "church_attended"
+
+[[column]]
+header = "EXTRA_PARENT2_HEARD_ABOUT_SCHOOL"
+section = "parent2"
+field = "how_hear_other"
+transform = "how_hear"
+
+[[column]]
+header = "EXTRA_PARENT2_EDUCATION"
+section = "parent2"
+field = "highest_school_year"
+transform = "enum:highest_school_year"
+
+[[column]]
+header = "EXTRA_PARENT2_NON_EDUCATION"
+section = "parent2"
+field = "degree"
+transform = "enum:degree"
+
+[[column]]
+header = "EXTRA_PARENT2_OCCUPATION_GROUP"
+section = "parent2"
+field = "occupational_group"
+transform = "enum:occupational_group"
+
+[[column]]
+header = "EXTRA_PARENT2_LANG_AT_HOME"
+section = "parent2"
+field = "home_language"
+transform = "home_language"

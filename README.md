@@ -1,38 +1,115 @@
 # enrolhq--misc-utils
 
-Miscellaneous utility scripts for working with [EnrolHQ](https://enrolhq.com.au/) via its Python SDK.
+Utilities for writing student/parent enrichment fields back to
+[EnrolHQ](https://enrolhq.com.au/) from an Excel export, via its Python SDK.
 
-## Scripts
+The core is the **`enrolhq_sync`** package (`src/enrolhq_sync/`): a
+config-driven, unit-tested batch updater. School-specific data (which columns
+to sync, the religion allowlist, the enum/label maps) lives in
+[`config/*.toml`](config/) — not in code — so the same tool serves multiple
+schools by swapping config files.
 
-### `src/batch-update-student-parent-profiles.py`
+## Input template
 
-Batch-update student, parent, and application fields in EnrolHQ from an Excel sheet based on the EnrolHQ Import Template 2026.
+The input spreadsheet is the **2025 EnrolHQ Import Template**, whose `EXTRA_`
+columns hold the enrichment values this sync writes/updates back into EnrolHQ.
+Row and parent matching, however, follows the **2026 EnrolHQ Import Template**
+column layout — it matches on **name and email** (plus external id and mobile)
+using the 2026 template's header names. The column names referenced throughout
+[`config/`](config/) reflect that mix: `EXTRA_*` write targets from the 2025
+template, and matching keys from the 2026 template.
 
-#### How it works
+## Why a package (and not the old single script)
 
-The EnrolHQ API uses **PUT (full replacement)**, not PATCH — see the SDK's [update example](https://github.com/team-and-systems-hq/enrolhq-python/blob/main/examples/04_update_application.py). To do a "partial" update you must GET the full object, mutate the fields you care about, then PUT the whole thing back.
+The previous implementation was one ~1,450-line file. This version splits the
+concerns so each piece is testable and replaceable:
 
-1. Reads every data row from `src/input_spreadsheet.xlsx`.
-2. Collects the unique values of `Student Entry Year 11L` and calls `client.applications.list(entry_year=YYYY, has_external_id=True)` once per year to build a summary index keyed by `(external_id, dob)`.
-3. For each row: finds the summary, calls `client.applications.get(app_id)` for the full object, mutates only the fields named in `COLUMN_MAP` whose Excel cells are non-empty, then calls `client.applications.update(app_id, app)` with the full mutated object.
-4. **Empty cells are skipped** — the existing value is preserved across the PUT because we only mutate what the sheet provides.
+| Module | Responsibility |
+|--------|----------------|
+| [`config.py`](src/enrolhq_sync/config.py)       | Load + type the `config/*.toml` files |
+| [`normalize.py`](src/enrolhq_sync/normalize.py) | Pure value/name/email/phone normalizers |
+| [`excel.py`](src/enrolhq_sync/excel.py)         | Read the spreadsheet into rows |
+| [`matching.py`](src/enrolhq_sync/matching.py)   | Student index + 2-strategy match; parent-slot resolution |
+| [`transforms.py`](src/enrolhq_sync/transforms.py) | Registry of field transforms (enum/fk/compound) |
+| [`planner.py`](src/enrolhq_sync/planner.py)     | Pure `apply_changes()` → `ChangeSet` (no I/O) |
+| [`client.py`](src/enrolhq_sync/client.py)       | SDK wrapper: retry/backoff + dictionary cache |
+| [`reporting.py`](src/enrolhq_sync/reporting.py) | Console/file logging + JSON run report |
+| [`cli.py`](src/enrolhq_sync/cli.py)             | Argument parsing + the per-row loop (the only I/O) |
 
-#### Primary keys used for matching
+The planner is pure: it mutates a copy and returns a `ChangeSet`, so the whole
+matching/translation core is tested with **no network and no mocks**
+(`tests/`, run with `pytest`).
 
-| Entity   | Primary keys                                              |
-|----------|-----------------------------------------------------------|
-| Student  | `Student External Id 0A`, `Student Dob 5F`                |
-| Parent 1 | `Parent One External Id 22W`, `Parent One Email 29AD`     |
-| Parent 2 | `Parent Two External Id 40AO`, `Parent Two Email 47AV`    |
+## How it works
 
-`Student Entry Year 11L` is used to scope the initial `applications.list()` fetches.
+EnrolHQ's API is **PUT (full replacement)**, not PATCH. To do a partial update
+the tool GETs the full application, mutates only the mapped fields whose Excel
+cells are non-empty, then PUTs the whole object back. Empty cells are skipped,
+so existing values survive the round-trip.
 
-#### Parent semantics — sheet-driven, with a slot-mismatch guard
+1. Read every data row from the input spreadsheet.
+2. Collect the distinct `Student Entry Year`s and `list()` applications once
+   per year (`has_external_id=True`) to build a client-side index.
+3. For each row: resolve it to one application, GET the full object, run the
+   planner, and (in `--live`) PUT it back.
 
-- A parent (matched by Parent One/Two External Id) can sit on many sibling applications. The script does **not** fan parent edits out across siblings — it only touches the application matched by the row's `(Student External Id, Student Dob)`.
-- Before writing to `user_parent` (Parent One) or `non_user_parent` (Parent Two), `_check_parent_pk()` verifies the sheet's Parent External Id matches `app["user_parent"]["external_id"]` / `app["non_user_parent"]["external_id"]`. If they disagree, that parent slot (and its address sub-sections) is skipped for the row and a `WARNING:` line is printed. Student + application-level fields still update.
-- Empty Parent External Id in the sheet means "no check" — the parent edits go through (treated as the sheet just doesn't supply that key).
-- If you want stale parent data on a sibling's application kept in sync, re-export and re-run with that sibling's row in the sheet.
+### Matching (resilient to rewritten IDs)
+
+External IDs in EnrolHQ are **not stable** — integration jobs rewrite them — so
+matching never trusts one identifier:
+
+- **Student:** `(external_id, dob)` first, then `(last, first, middle, dob)`
+  fallback. A fallback that hits more than one record is reported **AMBIGUOUS**
+  and skipped (twins won't share all four parts).
+- **Parent slot:** Parent One → `user_parent`, Parent Two → `non_user_parent`,
+  matched by **ANY** of external_id / email / mobile / (first, last). A detected
+  cross-slot swap is **refused** by default, or cross-mapped with
+  `--allow-parent-swap`.
+
+The columns each strategy reads are configured in
+[`config/matching.toml`](config/matching.toml).
+
+## Configuring what gets synced
+
+Everything is data. Edit the TOML; no code change needed.
+
+- **[`config/column_map.toml`](config/column_map.toml)** — one `[[column]]`
+  block per synced field: `header`, `section`, `field`, optional `transform`.
+  Comment out a block to stop syncing that column. Anything not listed is
+  ignored. **Don't** remove the `section = "key"` blocks — they drive matching.
+- **[`config/enum_maps.toml`](config/enum_maps.toml)** — label→code tables for
+  the integer-enum fields (indigenous, education, degree, occupation group).
+- **[`config/religion.sample.toml`](config/religion.sample.toml)** — a
+  **generic example** religion allowlist + aliases (an invented list, not any
+  real school's). `religion` is validated server-side; an invalid value 400s
+  the whole PUT, so the tool only sends allowlisted values and skips the rest
+  with a warning. There is no API for the dropdown, so to use this for real:
+  open the school's EnrolHQ admin UI, transcribe its religion dropdown into
+  `config/religion.<school>.toml`, and pass `--religion-config`. Those
+  per-school files are **git-ignored** so real client lists are never
+  committed — only the example ships.
+
+Transforms available to `column_map.toml`:
+
+| `transform` | Effect |
+|-------------|--------|
+| *(omitted)* | plain free-text / date passthrough |
+| `enum:<table>` / `enum_array:<table>` | label → int / `[int]` via `enum_maps.toml` |
+| `fk:<dict>` / `fk_array:<dict>` | label → `{id}` / `[{id}]` via a reference dictionary |
+| `religion` | school-allowlisted choice (skips invalid values) |
+| `home_language` | compound `home_language` + `is_speak_other_language` gate |
+| `how_hear` | free-text "Other", deduped against the structured `how_hear` list |
+
+### Scope: EXTRA_* only
+
+By design the column map only writes the `EXTRA_*` enrichment fields (religion,
+place of worship, education, occupation group, indigenous status, country of
+birth, nationality, home language, heard-about). Names, addresses, and phones
+are intentionally **not** mapped, so a re-run cannot clobber data the school
+maintains elsewhere. Re-add a `[[column]]` block to sync more.
+
+Parent DOB is deliberately omitted: de-scoped by the client and disabled
+instance-wide in EnrolHQ (locked parents silently drop the write).
 
 ## Setup
 
@@ -51,46 +128,72 @@ ENROLHQ_BASE_URL=https://yourschool.enrolhq.com.au/api/v2/
 
 Place your filled-in spreadsheet at `src/input_spreadsheet.xlsx`.
 
-## Choosing which columns to sync
-
-The `COLUMN_MAP` dict near the top of [src/batch-update-student-parent-profiles.py](src/batch-update-student-parent-profiles.py) controls which columns get pushed to the API. To stop syncing a column, simply **comment it out** (or delete the line):
-
-```python
-# "Student Middle Name 3D":        ("app", "middle_name"),
-# "Parent One Occupation 28AC":    ("user_parent", "occupation"),
-```
-
-Any column not present in `COLUMN_MAP` is silently ignored — the cell's value in the spreadsheet doesn't matter.
-
-**Do not comment out** the six `("key", ...)` rows or `ENTRY_YEAR_COL` — they drive the lookup, not the update payload, and removing them will break student matching. They are already excluded from the update payload by `apply_row_to_app()`.
-
 ## Usage
 
 ```powershell
-# Dry-run (default) — prints payloads without calling the API
-python src/batch-update-student-parent-profiles.py
+# Dry-run (default) — prints the per-row diff + summary, writes a JSON report,
+# makes NO changes.
+python -m enrolhq_sync
 
-# Live run — actually sends updates
-python src/batch-update-student-parent-profiles.py --live
+# Live run — actually sends PUTs.
+python -m enrolhq_sync --live
 
-# Custom input file
-python src/batch-update-student-parent-profiles.py --input path/to/file.xlsx
+# Single-record canary before a full live run.
+python -m enrolhq_sync --live --limit 1
+
+# Other flags
+python -m enrolhq_sync --input path/to/file.xlsx
+python -m enrolhq_sync --allow-parent-swap
+python -m enrolhq_sync --religion-config religion.othrschool.toml
+python -m enrolhq_sync --no-log-file --no-report
+```
+
+The original script path still works as a thin shim:
+`python src/batch-update-student-parent-profiles.py --live`.
+
+### Output
+
+- **Console + `logs/run-<ts>.log`** — human-readable per-row diff, warnings,
+  and an end-of-run summary (outcomes, match paths, parent-slot/translation
+  issue counts).
+- **`logs/run-<ts>.json`** — the same data, machine-readable: per-row outcome,
+  diff, warnings, and match path, plus the summary. Diffable across runs;
+  suppress with `--no-report`.
+
+### Inspecting a record
+
+```powershell
+python src/inspect_application.py <application-uuid>
+```
+
+Read-only dump of the EXTRA_*-relevant fields (including `is_name_editable`, to
+spot a locked parent slot).
+
+## Tests
+
+The pure layers (normalize, transforms, matching, planner) are covered by a
+pytest suite with no network:
+
+```powershell
+pytest
 ```
 
 ## Caveats
 
-The `COLUMN_MAP` has been verified against the local OpenAPI spec at [docs/EnrolHQ API (v2).yaml](docs/EnrolHQ%20API%20%28v2%29.yaml) (schema `ApplicationV2` / `AdminParentV1` / `Address`). Things to be aware of:
+Mappings are verified against the local OpenAPI spec at
+[docs/EnrolHQ API (v2).yaml](docs/EnrolHQ%20API%20%28v2%29.yaml) (`ApplicationV2`
+/ `AdminParentV1` / `Address`). Notable points:
 
-- **Parent Two is `non_user_parent`**, not flat `parent2_*` fields. The script writes parent updates into `app["user_parent"]` (Parent One) and `app["non_user_parent"]` (Parent Two).
-- **Addresses are nested `Address` objects** with keys `apartment`, `street_address`, `city`, `suburb`, `state`, `postcode`, `country`. The sheet's residential/mailing/parent address columns are written into `residential_address` / `mailing_address` / `user_parent.residential_address` / `non_user_parent.residential_address` etc.
-- **Read-only fields:** `Parent One Email` and `Parent Two Email` are read-only on `AdminParentV1`. They are kept in `COLUMN_MAP` as `"key"` entries (matching only) and are NEVER written. Email changes go through a different EnrolHQ flow.
-- **Fields left commented out in `COLUMN_MAP`** require translation we have not implemented yet, namely:
-  - **Integer enums:** `Status 8I` (application_status), `Student Gender 6G`, `Entry Grade 10K`, `Student Residency Status 70BS`, `Student Lives With 77BZ`, `Parent One/Two Relationship`. Need a label→code map to be safely written.
-  - **Foreign-key objects:** `Student Campus 75BX`, `Student Residential/Parent Country`, `Student Current School Name`, `EXTRA_*_LANG_AT_HOME`. The API accepts `{id: <uuid>}` for these, so a reference-data lookup is required.
-  - **No direct top-level home:** `EOI Submission Date`, `Application Date`, `Manual Enquiry Date`, the various `Enrolment Offer / Event Booking / Interview ...Manual Made/Accepted Date` columns. These live under read-only sub-objects (`manual_submission_dates`, `progress`) and are normally set via dedicated POST actions, not via PUT on the application.
-  - **EXTRA\_PARENT*\_** columns are school-required values pulled from Edumate (the `EXTRA_` prefix is a source-side tag, not an EnrolHQ custom field). The plain-string ones — `RELIGION`, `PLACE_OF_WORSHIP`, `BIRTHDATE` — are **enabled**, mapped to `AdminParentV1.religion`, `church_attended`, and `dob` respectively. The rest (`HEARD_ABOUT_SCHOOL`, `EDUCATION`, `OCCUPATION_GROUP`, `LANG_AT_HOME`, `NON_EDUCATION`) are integer enums / foreign-key objects in EnrolHQ whose codes do not match Edumate's, so they are left commented out until a per-field Edumate→EnrolHQ translation is added. Suggested target field is noted next to each commented line.
-- **Sub-status:** `Sub Status 9J` has no direct equivalent on `ApplicationV2`; the closest is `custom_status` (free-text). Left commented out so you can decide.
-- **No `external_id` list filter:** the `/applications-list/` endpoint accepts `has_external_id=True` but not `external_id=<value>`, so the script fetches all applications for each entry year and indexes them client-side.
+- **Parent Two is `non_user_parent`**, not flat `parent2_*` fields.
+- **Addresses are nested `Address` objects** (`apartment`, `street_address`,
+  `city`, `suburb`, `state`, `postcode`, `country`).
+- **`Parent One/Two Email` are read-only** on `AdminParentV1` — kept as `key`
+  columns for matching, never written.
+- **`religion` is server-validated** per school against a dropdown with no API;
+  transcribe it from the EnrolHQ UI into a git-ignored
+  `config/religion.<school>.toml` and refresh it if writes start getting skipped.
+- **No `external_id` list filter** on `/applications-list/`, so applications are
+  fetched per entry year and indexed client-side.
 
 ## Resources
 

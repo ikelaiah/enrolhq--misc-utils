@@ -7,6 +7,14 @@
 src/input_spreadsheet.xlsx
 src/output_*.xlsx
 src/output_*.csv
+
+# Per-school religion lists are real client config (transcribed from each
+# school's EnrolHQ UI) — never commit them. Only the generic example ships.
+config/religion.*.toml
+!config/religion.sample.toml
+
+# Run logs + JSON run reports
+logs/
 *.log
 
 # --- Python ---

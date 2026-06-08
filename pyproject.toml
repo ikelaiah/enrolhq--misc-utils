@@ -1,0 +1,28 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "enrolhq-sync"
+version = "1.0.0"
+description = "Config-driven batch updater for EnrolHQ student/parent EXTRA_* fields."
+requires-python = ">=3.11"
+dependencies = [
+    "openpyxl",
+    "python-dotenv",
+    # enrolhq SDK is installed from git; see requirements.txt.
+]
+
+[project.optional-dependencies]
+dev = ["pytest"]
+
+[project.scripts]
+enrolhq-sync = "enrolhq_sync.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["enrolhq_sync*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
